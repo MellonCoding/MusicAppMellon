@@ -1,0 +1,85 @@
+RUOLO
+Sei l'agente Audio di MusicAppMellon, lettore musicale locale per iOS in Flutter.
+Leggi context.md, REGOLE.md e CONTRACTS.md prima di qualsiasi cosa.
+Implementi il motore di riproduzione vero: just_audio + audio_service, background e
+controlli da lock screen / Control Center.
+
+OBIETTIVO
+Implementare PlayerRepository con una struttura semplice e testabile, senza un
+AudioHandler monolitico.
+
+ARCHITETTURA OBBLIGATORIA
+lib/data/audio/
+  queue_controller.dart      QueueController: sola logica Dart della coda. Nessun plugin.
+                             next/previous/insertNext/addToQueue/removeFromQueue/
+                             reorderQueue/currentIndex/avanzamento su errore.
+  audio_player_adapter.dart  Interfaccia AudioPlayerAdapter + JustAudioPlayerAdapter + fake.
+                             Solo load/play/pause/seek/position/duration/processingState/
+                             dispose.
+  player_repository_impl.dart  Implementa PlayerRepository combinando QueueController,
+                             AudioPlayerAdapter e PathResolver. Emette stateStream coerente.
+  music_audio_handler.dart   MusicAudioHandler extends BaseAudioHandler with
+                             QueueHandler, SeekHandler. Delega a PlayerRepository e
+                             pubblica MediaItem/PlaybackState.
+  init_audio.dart            initAudioService({repository, pathResolver}): configura
+                             AudioSession e registra il MusicAudioHandler. Idempotente.
+La logica di coda vive in QueueController e si testa senza plugin.
+
+COSA DEVI FARE
+1. QueueController: implementa esattamente la semantica di REGOLE.md, usando Song.id per
+   identificare i brani. Liste unmodifiable, stessa istanza finché la coda non cambia.
+2. AudioPlayerAdapter: interfaccia minima + implementazione just_audio + fake per i test.
+3. PlayerRepositoryImpl({required PathResolver pathResolver, required AudioPlayerAdapter
+   adapter}): risolve relativePath al momento del play, mappa gli stati in PlaybackStatus,
+   emette PlayerState coerenti con duration inclusa (nessuno stato
+   incoerente tipo currentSong null mentre playing). Su file mancante/non riproducibile:
+   status error, currentSong resta il brano fallito, si passa al successivo se esiste.
+4. MusicAudioHandler: riceve i comandi di sistema e li inoltra al repository; pubblica
+   mediaItem, queue e playbackState (titolo, artista, album, durata, artwork). Pausa su
+   interruzione (telefonata, altra app) e su cuffie scollegate.
+5. initAudioService({required PlayerRepository repository, required PathResolver
+   pathResolver}): una sola esecuzione anche se chiamata più volte. Configura la sessione
+   audio (categoria playback) e chiama AudioService.init con
+   `MusicAudioHandler(repository, pathResolver)`.
+6. iOS: aggiungi UIBackgroundModes con "audio" in ios/Runner/Info.plist.
+7. NON creare provider Riverpod reali: il provider resta fake. Scrivi
+   lib/data/audio/WIRING.md con il costruttore esatto di PlayerRepositoryImpl e di
+   initAudioService, e come sostituire il fake. Il cablaggio è di Integrazione.
+8. reports/agente-1-audio.md e MANUAL_TESTS_AUDIO.md.
+
+VINCOLI
+- Scrivi SOLO in: lib/data/audio/, test/data/audio/, ios/Runner/Info.plist (solo per
+  UIBackgroundModes audio), MANUAL_TESTS_AUDIO.md, reports/agente-1-audio.md.
+- NON toccare: lib/domain/, lib/application/, lib/ui/, lib/data/library/, pubspec.yaml,
+  main.dart, CONTRACTS.md.
+- Se un contratto è insufficiente: descrivi il problema e la modifica proposta nel report,
+  non modificarlo.
+- Se serve una dipendenza nuova: chiedila nel report (la aggiunge Integrazione).
+- Nessuna UI, nessun database, nessuna logica di playlist.
+
+REGOLE DI COMPORTAMENTO
+Rispetta e annota in un commento nel file principale:
+- previous(): posizione > 3s → torna a zero; altrimenti brano precedente; sul primo brano
+  torna a zero.
+- next() sull'ultimo brano: status completed, coda invariata.
+- removeFromQueue del brano in corso: passa al successivo se esiste, altrimenti si ferma.
+- reorderQueue: mantiene currentIndex corretto quando si sposta il brano in corso o altri
+  brani attorno ad esso. Indici pre-movimento, newIndex finale dopo la rimozione.
+- insertNext: inserisce dopo il corrente senza avviare la riproduzione.
+- Errore file: status error, nessun crash, si prosegue col successivo se esiste.
+
+TEST
+- Unit test di QueueController e PlayerRepositoryImpl con AudioPlayerAdapter fake.
+  Casi: coda vuota, un brano, ultimo brano, previous >3s, remove del corrente, reorder
+  attorno al corrente, insertNext senza corrente, errore file, dispose, stati coerenti.
+- Il background e il lock screen non si testano con unit test: scrivi
+  MANUAL_TESTS_AUDIO.md con la checklist per simulatore/dispositivo (background, schermo
+  bloccato, lock screen, Control Center, telefonata, cuffie scollegate).
+
+DEFINITION OF DONE
+- `flutter analyze` senza warning; i tuoi test sono verdi.
+- PlayerRepositoryImpl rispetta l'interfaccia senza modifiche a lib/domain/.
+- L'app riproduce un file reale su simulatore iOS (con un trigger temporaneo, da NON
+  lasciare nel codice finale).
+- WIRING.md completo; report finale con scelte, versioni, deviazioni, richieste ai
+  contratti, esito della checklist manuale.

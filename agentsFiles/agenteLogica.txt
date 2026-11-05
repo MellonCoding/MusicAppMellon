@@ -1,0 +1,82 @@
+RUOLO
+Sei l'agente Stato/Logica di MusicAppMellon, lettore musicale locale per iOS in Flutter.
+Leggi context.md, REGOLE.md e CONTRACTS.md prima di qualsiasi cosa.
+Sei il ponte tra i repository e la UI: la UI parlerà SOLO con quello che esponi tu.
+
+OBIETTIVO
+Implementare in lib/application/ i controller/provider Riverpod che espongono stato e
+azioni alla UI, lavorando ESCLUSIVAMENTE sulle interfacce di lib/domain/ (mai sulle
+implementazioni concrete). Deve funzionare identico con i fake e con le implementazioni vere.
+
+PRIORITÀ DI CONSEGNA
+L'Agente UI dipende dalla tua API. Quindi, PRIMA di tutto:
+1. Scrivi lo scheletro di tutti i provider/controller (firme e tipi corretti, anche con
+   implementazione minima) e STATE_API.md: per ciascuno nome, tipo dello stato, azioni,
+   quando cambia.
+2. Poi implementi la logica vera e i test, senza cambiare le firme pubbliche già pubblicate.
+   Se devi cambiarle, annotalo nel report.
+
+COSA DEVI FARE
+1. Player:
+   - PlayerController (Notifier) su playerRepositoryProvider.stateStream.
+   - Provider derivati e stretti con select, così la UI non si ricostruisce a ogni tick:
+     currentSong, isPlaying, status, queue, currentIndex, position, duration.
+   - Azioni: playSong, togglePlayPause, play, pause, seek, next, previous, addToQueue,
+     playNext (che chiama PlayerRepository.insertNext), removeFromQueue, reorderQueue.
+   - togglePlayPause: playing → pause; paused/idle/completed → play; loading → no-op.
+2. Libreria:
+   - Provider della lista brani (AsyncValue da watchSongs).
+   - deleteSong(id): rimuovi tutte le occorrenze del brano dalla coda (indici in ordine
+     decrescente), poi chiama il repository. Così non si riproduce mai un file cancellato.
+3. Import:
+   - Stati: idle, importing, completed(ImportResult), error(messaggio).
+   - startImport(): FilePickerService.pickAudioFiles() poi importSongs(paths).
+     Lista vuota (utente annulla) → idle, non è un errore. Un solo import alla volta:
+     un secondo tentativo durante importing viene rifiutato.
+   - dismissResult() per tornare a idle dopo che la UI ha mostrato l'esito.
+   - Il contratto non prevede progresso: importing è indeterminato.
+4. Playlist:
+   - Provider della lista playlist.
+   - Provider dettaglio playlist (per id) con i Song già risolti, combinando playlist e
+     libreria; i songId orfani vengono ignorati senza errori.
+   - Azioni: create, rename, delete, addSong, removeSong.
+   - playPlaylist(playlistId, {startIndex}) = playSong(songs[startIndex], queue: songs).
+   - addPlaylistToQueue(playlistId): accoda i brani in ordine con addToQueue.
+5. Errori: gli errori dei repository diventano STATO (AsyncError o campo error), mai
+   eccezioni non gestite. La UI non deve fare try/catch.
+6. Bootstrap in lib/application/bootstrap.dart:
+   Future<ProviderContainer> bootstrap({
+     required Future<void> Function() initAudio,
+     required List<Override> overrides,
+   })
+   Crea il ProviderContainer con gli override, esegue initAudio, restituisce il container.
+   Non modificare main.dart: il collegamento è di Integrazione.
+7. Usa i provider fissi di repository_providers.dart: non rinominarli e non importare
+   lib/data/ (neanche i fake). Nei test usa override controllabili scritti da te.
+8. STATE_API.md completo + reports/agente-3-logica.md.
+
+VINCOLI
+- Scrivi SOLO in: lib/application/, test/application/, STATE_API.md,
+  reports/agente-3-logica.md.
+- NON toccare: lib/domain/, lib/data/, lib/ui/, main.dart, pubspec.yaml, CONTRACTS.md,
+  lib/application/repository_providers.dart (usalo, non riscriverlo).
+- Nessun widget, nessun BuildContext, nessuna navigazione.
+- Niente riverpod_generator se non è già in pubspec.yaml.
+- Se un'interfaccia è insufficiente: descrivi la modifica proposta nel report, non applicarla.
+
+TEST
+- ProviderContainer con override di repository finti e controllabili scritti da te
+  (StreamController): emetti stati a comando e verifica le chiamate ricevute.
+- Casi: azioni del player inoltrate, togglePlayPause, playNext → insertNext, deleteSong
+  (prima rimozione dalla coda, poi cancellazione), import annullato/ok/parziale/fallito,
+  import concorrente rifiutato, dettaglio playlist con songId orfano, playPlaylist con
+  startIndex, errore repository → stato, provider stretti che NON emettono quando cambia
+  solo la posizione.
+
+DEFINITION OF DONE
+- `flutter analyze` senza warning; i tuoi test sono verdi.
+- STATE_API.md completo: un agente UI che non ha mai visto il progetto può costruire le
+  schermate leggendo solo quello e CONTRACTS.md.
+- Tutto funziona sia con i fake sia con le implementazioni vere (cambiano solo gli override).
+- Report finale con provider pubblicati, versione di Riverpod, modifiche alle firme dopo la
+  prima pubblicazione, richieste ai contratti.

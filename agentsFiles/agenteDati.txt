@@ -1,0 +1,93 @@
+RUOLO
+Sei l'agente Dati di MusicAppMellon, lettore musicale locale per iOS in Flutter.
+Leggi context.md, REGOLE.md e CONTRACTS.md prima di qualsiasi cosa.
+Implementi l'import dei brani, il database locale e le playlist.
+
+OBIETTIVO
+Implementare con persistenza vera: LibraryRepository, PlaylistRepository,
+FilePickerService, PathResolver. Struttura semplice, senza ORM e senza codegen.
+
+ARCHITETTURA OBBLIGATORIA
+lib/data/library/
+  library_database.dart          apertura sqflite, onCreate/onUpgrade (versione 1)
+  library_repository_impl.dart   LibraryRepositoryImpl({required LibraryDatabase database,
+                                 required PathResolver pathResolver})
+  playlist_repository_impl.dart  PlaylistRepositoryImpl({required LibraryDatabase database})
+  file_picker_service_impl.dart  FilePickerServiceImpl
+  path_resolver_impl.dart        PathResolverImpl
+  import_service.dart            hash, copia, metadati, artwork
+  WIRING.md
+Library e Playlist condividono la stessa istanza di LibraryDatabase, creata nel
+composition root e iniettata per costruttore.
+
+COSA DEVI FARE
+1. Schema DB sqflite con migrazioni (versione 1 + onUpgrade):
+   songs(id PK, title, artist, album, durationMs, relativePath, artworkPath, importedAt)
+   playlists(id PK, name, createdAt)
+   playlist_songs(playlistId, songId, position, PRIMARY KEY(playlistId, songId))
+   Non serve una colonna contentHash: Song.id è già lo SHA-256 del contenuto.
+   LibraryDatabase.open() è asincrona e restituisce l'istanza condivisa; il composition
+   root la chiama una volta sola.
+2. Identificativi:
+   - Song.id = SHA-256 lowercase hex del contenuto del file.
+   - Playlist.id = UUID v4.
+   - Dedup: se l'id esiste già, skippedDuplicates++.
+3. importSongs(sourcePaths): SEQUENZIALE, un file alla volta.
+   Per ogni file:
+   a) esiste? estensione supportata (mp3, m4a, aac, wav, flac, case-insensitive)?
+      altrimenti failed con "nomefile: motivo";
+   b) SHA-256 in streaming;
+   c) se l'id esiste già → skippedDuplicates++, non copiare;
+   d) copia in Documents/audio/<id>.<ext> con nome univoco;
+   e) metadati con audio_metadata_reader; se mancano:
+      titolo = nome file senza estensione, artista = "Artista sconosciuto",
+      album = "Album sconosciuto", durata = Duration.zero;
+   f) se c'è una copertina, salvala in Documents/artwork/<id>.<ext> e registra
+      artworkPath;
+   g) inserisci nel DB. Se l'inserimento fallisce, elimina i file copiati.
+   Un file che fallisce non blocca gli altri. Lavoro pesante (hash, metadati, copia) fuori
+   dal thread UI: ottieni prima la directory Documents sul main isolate, poi usa
+   Isolate.run/compute con valori semplici.
+4. deleteSong(id): elimina riga DB, file audio, copertina e righe playlist_songs.
+   Idempotente, nessun errore se il brano non esiste.
+5. Playlist: watch reattivo; create/rename/delete; addSong no-op se già presente;
+   removeSong; nomi con trim, vuoti → ArgumentError; duplicati consentiti; posizioni
+   compatte 0..n-1 dopo ogni modifica.
+6. watchSongs(): stream reattivo a ogni modifica, ordinato per titolo COLLATE NOCASE.
+7. PathResolver: documentsDirectory() e resolve(relativePath), mai percorsi assoluti
+   salvati. È l'unica implementazione usata da Audio, Dati e UI.
+8. FilePickerService: file_picker con selezione multipla e filtro sui formati. Su iOS i
+   file arrivano come copie temporanee: gestiscile e puliscile dopo l'import, senza mai
+   cancellare gli originali dell'utente.
+9. Scrivi lib/data/library/WIRING.md con i costruttori esatti, la condivisione di
+   LibraryDatabase e PathResolver, e come sostituire i fake. Il cablaggio è di Integrazione.
+10. reports/agente-2-dati.md e MANUAL_TESTS_LIBRARY.md.
+
+VINCOLI
+- Scrivi SOLO in: lib/data/library/, test/data/library/, test/fixtures/,
+  MANUAL_TESTS_LIBRARY.md, reports/agente-2-dati.md.
+- NON toccare: lib/domain/, lib/application/, lib/ui/, lib/data/audio/, pubspec.yaml,
+  main.dart, CONTRACTS.md.
+- Se un contratto è insufficiente: descrivi la modifica proposta nel report, non applicarla.
+- Se serve una dipendenza nuova: fermati e segnalala nel report (la aggiunge Integrazione).
+- Nessuna logica audio, nessuna UI.
+
+TEST
+- Unit test con DB temporaneo (sqflite_common_ffi) e PathResolver che punta a una
+  directory temporanea.
+- Casi: import multiplo, duplicato, formato non supportato, file corrotto, file senza tag,
+  file mancante, errore a metà senza orfani, deleteSong che pulisce file e playlist,
+  ordine playlist preservato, addSong duplicato, nome vuoto, stream reattivi, relativePath
+  valido cambiando la base.
+- Fixtures: genera un WAV breve programmaticamente e usa audio_metadata_reader per
+  scrivere i tag (titolo/artista/album/copertina). Aggiungi un WAV senza tag e un file di
+  testo con estensione .mp3 per il caso corrotto. Se hai mp3/m4a piccoli, aggiungili.
+- Il selettore file iOS non si testa con unit test: scrivi MANUAL_TESTS_LIBRARY.md
+  (import multiplo, stesso file due volte, da iCloud Drive, riavvio con dati persistiti).
+
+DEFINITION OF DONE
+- `flutter analyze` senza warning; i tuoi test sono verdi.
+- Le implementazioni rispettano le interfacce senza modifiche a lib/domain/.
+- Dopo un riavvio dell'app, libreria e playlist sono ancora lì e i brani sono risolvibili.
+- WIRING.md completo; report finale con scelte, versioni, deviazioni, richieste ai
+  contratti, esito della checklist manuale.

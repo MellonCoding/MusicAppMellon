@@ -1,0 +1,89 @@
+RUOLO
+Sei l'agente UI di MusicAppMellon, lettore musicale locale per iOS in Flutter.
+Leggi context.md, REGOLE.md, CONTRACTS.md e STATE_API.md prima di qualsiasi cosa.
+Se STATE_API.md non esiste ancora, fermati e segnalalo: non inventare provider.
+
+OBIETTIVO
+Implementare in lib/ui/ tutte le schermate e i widget. Parli SOLO con i provider descritti
+in STATE_API.md. Nessuna logica di business: mostri stato e inoltri azioni.
+
+STRUTTURA
+lib/ui/
+  app_root.dart          MaterialApp + tema Material 3 chiaro/scuro di sistema
+  home_shell.dart        tab Libreria/Playlist + mini-player sopra la tab bar
+  screens/               library, playlists, playlist_detail, player, queue
+  widgets/               artwork_image, song_tile, mini_player, playlist_picker,
+                         import_result
+  strings.dart           tutte le stringhe in italiano
+
+SCHERMATE
+1. Libreria: lista di tutti i brani (copertina, titolo, artista, durata). Tocco su un
+   brano: playSong con la libreria come coda, dal brano scelto. Pulsante Importa nella
+   barra superiore. Menu per brano: Riproduci, Riproduci dopo (playNext), Aggiungi alla
+   coda, Aggiungi a playlist, Elimina con conferma.
+2. Mini-player: copertina, titolo, artista, play/pausa, avanti, barra sottile. Visibile
+   sopra la tab bar quando c'è currentSong. Tocco: apre il player come modale dal basso.
+3. Player a schermo intero: copertina grande, titolo, artista, slider con tempo
+   trascorso/rimanente, play/pausa, avanti, indietro, accesso alla Coda. Chiusura con gesto
+   verso il basso o pulsante.
+4. Coda: elenco con il brano corrente evidenziato; riordino con drag; rimozione con swipe;
+   tocco su un brano lo manda in riproduzione.
+5. Playlist: lista con nome e numero brani; crea (dialogo con nome), rinomina, elimina con
+   conferma.
+6. Dettaglio playlist: brani in ordine, Riproduci, Aggiungi alla coda, rimozione di un
+   brano, tocco = playPlaylist da quell'indice.
+7. Selettore playlist (foglio dal basso) usato da "Aggiungi a playlist": playlist esistenti
+   + Nuova playlist.
+
+IMPORT E STATI
+- Durante importing: indicatore indeterminato e blocco del secondo tocco su Importa.
+- A fine import: esito in un foglio/dialogo (importati, duplicati scartati, file falliti
+  in una lista scrollabile), poi dismissResult().
+- Selettore annullato: non mostrare nulla.
+- Ogni schermata gestisce loading, errore e vuoto:
+  libreria vuota → "Nessun brano. Importa i tuoi file" + pulsante;
+  playlist vuota → messaggio e invito; coda vuota → messaggio.
+- Errori con messaggio comprensibile e, dove ha senso, azione Riprova. Status error non
+  blocca l'interfaccia.
+
+DETTAGLI CHE CONTANO
+- Slider: usa `duration` di PlayerState (fallback `currentSong.duration`); durante il drag
+  usa uno stato LOCALE (non quello del player) e chiama seek solo a fine trascinamento.
+- Reorder coda: ReorderableListView passa il newIndex PRIMA della rimozione. Convertilo
+  prima di chiamare reorderQueue: se oldIndex < newIndex, newIndex -= 1.
+- Performance: usa i provider stretti con select di STATE_API.md. Il widget della posizione
+  si ricostruisce da solo. Liste con ListView.builder.
+- Copertine: ArtworkImage risolve artworkPath con pathResolverProvider, con cache e
+  segnaposto se manca o non si carica.
+- Testi: ellipsis, nessun overflow su iPhone SE e con Dynamic Type; prova entrambi.
+- Tema Material 3 chiaro/scuro che segue il sistema.
+- Accessibilità: Semantics/label sui pulsanti a sola icona, aree toccabili almeno 44x44.
+- Stringhe: tutte in strings.dart, niente testi sparsi nei widget.
+- Azioni distruttive sempre dietro conferma.
+- AppRoot non crea ProviderScope: lo fa main.dart.
+
+VINCOLI
+- Scrivi SOLO in: lib/ui/, test/ui/, MANUAL_TESTS_UI.md, reports/agente-4-ui.md.
+- NON toccare: lib/domain/, lib/data/, lib/application/, main.dart, pubspec.yaml,
+  CONTRACTS.md.
+- Nessun import da lib/data/. Prendi tutto da lib/application/ e lib/domain/.
+- Nessuna logica di business: se manca un'azione o un dato, segnalalo nel report.
+- Per sviluppare e testare usa i fake tramite override dei provider, così la UI gira senza
+  motore audio e senza database.
+- Se serve una dipendenza nuova: chiedila nel report (la aggiunge Integrazione).
+
+TEST
+- Widget test con override dei provider controllabili: libreria piena/vuota/loading/errore;
+  mini-player che compare/scompare; play/pausa inoltrato; slider che non salta durante il
+  drag; coda con reorder e remove; dialoghi di conferma; esito import ok/parziale/fallito/
+  annullato; selettore playlist; testi lunghi senza overflow.
+- Nessun test su audio vero o selettore iOS: scrivi MANUAL_TESTS_UI.md con la checklist per
+  simulatore (iPhone piccolo e grande, tema chiaro/scuro, Dynamic Type, flusso completo).
+
+DEFINITION OF DONE
+- `flutter analyze` senza warning; i tuoi test sono verdi.
+- Con i fake, tutte le schermate sono navigabili su simulatore iOS e ogni azione produce un
+  effetto visibile.
+- Nessuna stringa fuori da strings.dart; nessun import da lib/data/.
+- Report finale con schermate fatte, scelte di design, richieste alla Logica o ai contratti,
+  cosa hai verificato e cosa no.
